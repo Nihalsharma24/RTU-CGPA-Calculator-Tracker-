@@ -4,27 +4,27 @@ import pandas as pd
 
 st.set_page_config(page_title="RTU ECE 3rd Sem SGPA Calc", layout="centered")
 
-# RTU Grade to Points Mapping (From official guidelines)
+# RTU Grade to Points Mapping
 GRADE_POINTS = {
     'A++': 10.0, 'A+': 9.0, 'A': 8.5, 'B+': 8.0, 'B': 7.5,
     'C+': 7.0, 'C': 6.5, 'D+': 6.0, 'D': 5.5, 'E+': 5.0,
     'E': 4.0, 'F': 0.0
 }
 
-# 3rd Sem ECE Credits Mapping (Hardcoded since PDFs lack credits)
-COURSE_CREDITS = {
-    '3EC1-02': 2.0,  # Technical Communication
-    '3EC2-01': 3.0,  # Adv. Engineering Mathematics-I
-    '3EC3-24': 1.0,  # Computer Programming Lab-I
-    '3EC4-04': 3.0,  # Digital System Design
-    '3EC4-05': 3.0,  # Signal & Systems
-    '3EC4-06': 4.0,  # Network Theory
-    '3EC4-07': 4.0,  # Electronics Devices
-    '3EC4-21': 1.0,  # Electronics Devices Lab
-    '3EC4-22': 1.0,  # Digital System Design Lab
-    '3EC4-23': 1.0,  # Signal Processing Lab
-    '3EC7-30': 1.0,  # Industrial Training
-    'FEC18': 0.5     # Entrepreneurship development / SODECA
+# 3rd Sem ECE Info: Course Code -> Subject Name & Credits
+COURSE_INFO = {
+    '3EC1-02': {'name': 'Technical Communication', 'credits': 2.0},
+    '3EC2-01': {'name': 'Adv. Engineering Mathematics-I', 'credits': 3.0},
+    '3EC3-24': {'name': 'Computer Programming Lab-I', 'credits': 1.0},
+    '3EC4-04': {'name': 'Digital System Design', 'credits': 3.0},
+    '3EC4-05': {'name': 'Signal & Systems', 'credits': 3.0},
+    '3EC4-06': {'name': 'Network Theory', 'credits': 4.0},
+    '3EC4-07': {'name': 'Electronics Devices', 'credits': 4.0},
+    '3EC4-21': {'name': 'Electronics Devices Lab', 'credits': 1.0},
+    '3EC4-22': {'name': 'Digital System Design Lab', 'credits': 1.0},
+    '3EC4-23': {'name': 'Signal Processing Lab', 'credits': 1.0},
+    '3EC7-30': {'name': 'Industrial Training', 'credits': 1.0},
+    'FEC18': {'name': 'Entrepreneurship Development', 'credits': 0.5}
 }
 
 def extract_grades_from_pdf(pdf_file):
@@ -35,23 +35,45 @@ def extract_grades_from_pdf(pdf_file):
             if not text:
                 continue
             
-            # Read line by line and look for course codes
             for line in text.split('\n'):
-                for code in COURSE_CREDITS.keys():
+                for code in COURSE_INFO.keys():
                     if code in line:
-                        # The grade is typically the last word on the line
                         parts = line.strip().split()
-                        grade = parts[-1] 
-                        if grade in GRADE_POINTS:
-                            extracted_data.append({
-                                'Course Code': code,
-                                'Grade': grade
-                            })
+                        try:
+                            # Find where the course code is in the line
+                            code_idx = parts.index(code)
+                            grade = parts[-1] 
+                            
+                            # Calculate how many items are after the course code
+                            items_after_code = len(parts) - 1 - code_idx
+                            
+                            # Standard subjects have Midterm, Endterm, and Grade after the code
+                            if items_after_code == 3: 
+                                internal = parts[code_idx + 1]
+                                external = parts[code_idx + 2]
+                            # Some subjects (like SODECA/FEC18) might only have an Endterm mark
+                            elif items_after_code == 2:
+                                internal = "-"
+                                external = parts[code_idx + 1]
+                            else:
+                                internal = "-"
+                                external = "-"
+                                
+                            if grade in GRADE_POINTS:
+                                extracted_data.append({
+                                    'Course Code': code,
+                                    'Subject Name': COURSE_INFO[code]['name'],
+                                    'Internal Marks': internal,
+                                    'External Marks': external,
+                                    'Grade': grade
+                                })
+                        except ValueError:
+                            continue
     return extracted_data
 
 # --- User Interface ---
 st.title("🎓 RTU ECE 3rd Sem SGPA Calculator")
-st.write("Upload your 3rd Semester result PDF to instantly calculate your SGPA. No manual math required.")
+st.write("Upload your 3rd Semester result PDF to instantly calculate your SGPA and view your exact marks.")
 
 uploaded_file = st.file_uploader("Upload Result PDF", type="pdf")
 
@@ -71,22 +93,22 @@ if uploaded_file is not None:
                     code = item['Course Code']
                     grade = item['Grade']
                     
-                    # Prevent duplicates if a course appears twice in text extraction
-                    if any(r['Course Code'] == code for r in results_for_display):
+                    # Prevent duplicates
+                    if any(r['Subject Name'] == item['Subject Name'] for r in results_for_display):
                         continue
                         
-                    credit = COURSE_CREDITS[code]
+                    credit = COURSE_INFO[code]['credits']
                     points = GRADE_POINTS[grade]
                     
-                    earned_points = credit * points
-                    total_credit_points += earned_points
+                    total_credit_points += (credit * points)
                     total_credits += credit
                     
                     results_for_display.append({
-                        "Course Code": code,
+                        "Subject Name": item['Subject Name'],
                         "Credits": credit,
-                        "Grade": grade,
-                        "Points Earned": earned_points
+                        "Internal Marks": item['Internal Marks'],
+                        "External Marks": item['External Marks'],
+                        "Grade": grade
                     })
                 
                 if total_credits > 0:
