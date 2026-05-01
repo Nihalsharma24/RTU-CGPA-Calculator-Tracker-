@@ -235,6 +235,21 @@ def compute_cgpa(data: dict) -> float:
     return pts / creds if creds > 0 else 0.0
 
 
+def sem_total_credits(sem_name: str) -> float:
+    """Sum of credits for a semester from courses.json."""
+    try:
+        return float(sum(v['credits'] for v in UNIVERSITY_DATA[CURRENT_BRANCH][sem_name].values()))
+    except KeyError:
+        return 20.0
+
+
+def highlight_fail_rows(row):
+    """Red highlight for F ➔ E rows in the subject dataframe."""
+    if row.get('Grade') == 'F ➔ E':
+        return ['background-color:#3a1a1a; color:#f87171'] * len(row)
+    return [''] * len(row)
+
+
 
 # ═══════════════════════════════════════════════════════════
 # SIDEBAR
@@ -248,6 +263,15 @@ with st.sidebar:
         st.session_state.pop("user", None)
         st.session_state.pop("session", None)
         st.rerun()
+
+    st.write("---")
+
+    # Mobile view toggle
+    if "mobile_view" not in st.session_state:
+        st.session_state["mobile_view"] = False
+    st.session_state["mobile_view"] = st.toggle(
+        "📱 Mobile View", value=st.session_state["mobile_view"]
+    )
 
     st.write("---")
     st.markdown("### 📊 Analytics")
@@ -326,13 +350,18 @@ st.write("---")
 
 
 # ═══════════════════════════════════════════════════════════
-# 2×2 UPLOAD GRID
+# 2×2 UPLOAD GRID  (collapses to 1-col in mobile view)
 # ═══════════════════════════════════════════════════════════
-col1, col2 = st.columns(2)
-sem_layout = [
-    ("Sem 1", col1), ("Sem 2", col2),
-    ("Sem 3", col1), ("Sem 4", col2)
-]
+mobile = st.session_state.get("mobile_view", False)
+
+if mobile:
+    sem_layout = [(s, st) for s in SEMESTERS]
+else:
+    col1, col2 = st.columns(2)
+    sem_layout = [
+        ("Sem 1", col1), ("Sem 2", col2),
+        ("Sem 3", col1), ("Sem 4", col2)
+    ]
 
 for sem_name, col in sem_layout:
     with col:
@@ -393,7 +422,8 @@ for sem_name, col in sem_layout:
                             )
 
                         with st.expander(f"✅ {sgpa:.2f} SGPA — View Subjects & Grade Chart"):
-                            st.dataframe(df_sub, use_container_width=True, hide_index=True)
+                            styled = df_sub.style.apply(highlight_fail_rows, axis=1)
+                            st.dataframe(styled, use_container_width=True, hide_index=True)
 
                             # F → E calculation note
                             if fail_subjects:
@@ -428,3 +458,75 @@ for sem_name, col in sem_layout:
                             st.rerun()
                 else:
                     st.error("No valid RTU subject codes detected in this PDF.")
+
+
+# ═══════════════════════════════════════════════════════════
+# CGPA TARGET CALCULATOR
+# ═══════════════════════════════════════════════════════════
+st.write("---")
+st.subheader("🎯 CGPA Target Calculator")
+st.caption("Find out what SGPA you need in remaining semesters to hit your target CGPA.")
+
+remaining_sems = [s for s in SEMESTERS if s not in cloud_data]
+
+if not remaining_sems:
+    # All 4 semesters synced — just show final CGPA
+    st.success(
+        f"✅ All semesters are synced. Your final predicted CGPA is "
+        f"**{compute_cgpa(cloud_data):.2f}**.",
+        icon=None
+    )
+elif not cloud_data:
+    st.info("Upload at least one semester result to use the target calculator.")
+else:
+    current_pts   = sum(v['points']  for v in cloud_data.values())
+    current_creds = sum(v['credits'] for v in cloud_data.values())
+    remaining_creds = sum(sem_total_credits(s) for s in remaining_sems)
+    total_creds     = current_creds + remaining_creds
+
+    tc1, tc2 = st.columns([1, 2])
+
+    with tc1:
+        target = st.number_input(
+            "Target CGPA",
+            min_value=4.0, max_value=10.0,
+            value=8.0, step=0.1,
+            format="%.1f",
+            key="target_cgpa"
+        )
+
+    # Needed points from remaining sems
+    needed_pts   = (target * total_creds) - current_pts
+    needed_sgpa  = needed_pts / remaining_creds if remaining_creds > 0 else 0.0
+
+    with tc2:
+        if needed_sgpa > 10.0:
+            st.error(
+                f"❌ **Not achievable.** Even scoring A++ (10.0) in all "
+                f"{len(remaining_sems)} remaining semester(s) won't reach a CGPA of {target:.1f}. "
+                f"Maximum possible CGPA from here is "
+                f"**{(current_pts + 10.0 * remaining_creds) / total_creds:.2f}**.",
+                icon=None
+            )
+        elif needed_sgpa < 4.0:
+            st.success(
+                f"🎉 **Already on track!** Your current performance guarantees "
+                f"a CGPA above {target:.1f} even with minimum passing grades in remaining semesters.",
+                icon=None
+            )
+        else:
+            # Colour the metric based on difficulty
+            if needed_sgpa >= 9.0:   diff, diff_color = "Very Hard",  "🔴"
+            elif needed_sgpa >= 8.0: diff, diff_color = "Hard",       "🟠"
+            elif needed_sgpa >= 7.0: diff, diff_color = "Moderate",   "🟡"
+            else:                    diff, diff_color = "Achievable",  "🟢"
+
+            r1, r2, r3 = st.columns(3)
+            r1.metric("📐 Needed SGPA",      f"{needed_sgpa:.2f}")
+            r2.metric("📅 Sems Remaining",   str(len(remaining_sems)))
+            r3.metric("📊 Difficulty",       f"{diff_color} {diff}")
+
+            st.caption(
+                f"You need an average SGPA of **{needed_sgpa:.2f}** across "
+                f"**{', '.join(remaining_sems)}** to achieve a CGPA of **{target:.1f}**."
+            )
