@@ -82,7 +82,6 @@ if uploaded_file is not None:
                 total_credit_points = 0.0
                 total_credits = 0.0
                 
-                # These variables are strictly for the CGPA rules (ignoring F grades)
                 cgpa_points = 0.0
                 cgpa_credits = 0.0
                 
@@ -90,56 +89,59 @@ if uploaded_file is not None:
                 
                 for item in extracted_grades:
                     code = item['Course Code']
-                    grade = item['Grade']
+                    original_grade = item['Grade']
                     
                     if any(r['Subject Name'] == item['Subject Name'] for r in results_for_display):
                         continue
                         
                     credit = COURSE_INFO[code]['credits']
-                    points = GRADE_POINTS[grade]
                     
-                    # Standard SGPA Math (includes F grades)
+                    # --- THE NEW BACK-EXAM EXCEPTION LOGIC ---
+                    if original_grade == 'F':
+                        points = 4.0  # Force the minimum passing 'E' points
+                        display_grade = 'F ➔ E (Predicted)'
+                    else:
+                        points = GRADE_POINTS[original_grade]
+                        display_grade = original_grade
+                    
+                    # Both SGPA and CGPA now calculate including the predicted 4.0 points
                     total_credit_points += (credit * points)
                     total_credits += credit
                     
-                    # Official CGPA Math (ignores F grades)
-                    if grade != 'F':
-                        cgpa_points += (credit * points)
-                        cgpa_credits += credit
+                    cgpa_points += (credit * points)
+                    cgpa_credits += credit
                     
                     results_for_display.append({
                         "Subject Name": item['Subject Name'],
                         "Credits": credit,
                         "Internal Marks": item['Internal Marks'],
                         "External Marks": item['External Marks'],
-                        "Grade": grade
+                        "Grade": display_grade
                     })
                 
                 if total_credits > 0:
                     sgpa = total_credit_points / total_credits
                     
-                    # 2. Save the official CGPA numbers to the Locker for this specific semester
+                    # Save the predicted CGPA numbers to the Locker
                     st.session_state.saved_semesters[selected_sem] = {
                         'points': cgpa_points,
                         'credits': cgpa_credits
                     }
                     
-                    # 3. Calculate the running total from the Locker
+                    # Calculate the running total
                     running_cgpa_points = sum(sem['points'] for sem in st.session_state.saved_semesters.values())
                     running_cgpa_credits = sum(sem['credits'] for sem in st.session_state.saved_semesters.values())
                     
-                    # Display the Metrics side-by-side
                     col1, col2 = st.columns(2)
-                    col1.metric(label=f"{selected_sem} SGPA", value=f"{sgpa:.2f}")
+                    col1.metric(label=f"Predicted {selected_sem} SGPA", value=f"{sgpa:.2f}")
                     
                     if running_cgpa_credits > 0:
                         running_cgpa = running_cgpa_points / running_cgpa_credits
-                        col2.metric(label="Current CGPA", value=f"{running_cgpa:.2f}")
+                        col2.metric(label="Predicted CGPA", value=f"{running_cgpa:.2f}")
                     
                     st.write("### Detailed Breakdown")
                     st.dataframe(pd.DataFrame(results_for_display), use_container_width=True)
                     
-                    # Show the user what is currently in their locker
                     st.write("---")
                     st.write(f"**Semesters currently tracked in CGPA:** {', '.join(st.session_state.saved_semesters.keys())}")
                         
