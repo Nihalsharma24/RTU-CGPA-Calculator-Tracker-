@@ -5,7 +5,7 @@ import json
 import io
 from supabase import create_client
 
-# --- CONFIG & DATABASE ---
+# --- INITIAL SETUP ---
 st.set_page_config(page_title="RTU Performance Dashboard", layout="wide")
 
 @st.cache_resource
@@ -13,7 +13,7 @@ def init_connection():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 supabase = init_connection()
-CURRENT_USER = "demo_user"
+CURRENT_USER = "demo_user" # Consistent with your database table
 
 # --- DATA LOADING ---
 with open('courses.json', 'r') as file:
@@ -25,14 +25,17 @@ GRADE_POINTS = {
     'E': 4.0, 'F': 0.0
 }
 
-# --- PERSISTENCE: FETCH FROM CLOUD ---
+# --- DATABASE FETCH ---
 def get_cloud_data():
-    res = supabase.table("rtu_data").select("*").eq("profile_id", CURRENT_USER).execute()
-    return {row['semester']: row for row in res.data}
+    try:
+        res = supabase.table("rtu_data").select("*").eq("profile_id", CURRENT_USER).execute()
+        return {row['semester']: row for row in res.data}
+    except:
+        return {}
 
 cloud_data = get_cloud_data()
 
-# --- EXTRACTION LOGIC (Preserved) ---
+# --- YOUR PDF EXTRACTION LOGIC ---
 @st.cache_data
 def extract_grades_from_pdf(file_content, active_courses):
     pdf_file = io.BytesIO(file_content)
@@ -57,25 +60,24 @@ def extract_grades_from_pdf(file_content, active_courses):
                         except ValueError: continue
     return extracted_data
 
-# --- UI: HEADER & METRICS ---
+# --- UI: TOP METRICS ---
 st.title("🎓 RTU Performance Dashboard")
-metric_container = st.container()
+metric_col1, metric_col2 = st.columns(2)
 
-# Calculate Global CGPA from Cloud Data
 if cloud_data:
     total_pts = sum(v['points'] for v in cloud_data.values())
     total_creds = sum(v['credits'] for v in cloud_data.values())
-    running_cgpa = total_pts / total_creds if total_creds > 0 else 0
+    final_cgpa = total_pts / total_creds if total_creds > 0 else 0
     
-    with metric_container:
-        c1, c2 = st.columns(2)
-        c1.metric("🌟 Predicted CGPA", f"{running_cgpa:.2f}")
-        c2.metric("📚 Semesters Sync'd", f"{len(cloud_data)} / 4")
-        if running_cgpa >= 8.5: st.success("Honors Trajectory! Keep it up.")
+    metric_col1.metric("🌟 Predicted CGPA", f"{final_cgpa:.2f}")
+    metric_col2.metric("📚 Semesters Sync'd", f"{len(cloud_data)} / 4")
+else:
+    metric_col1.metric("🌟 Predicted CGPA", "0.00")
+    metric_col2.metric("📚 Semesters Sync'd", "0 / 4")
 
 st.write("---")
 
-# --- UI: 2x2 GRID ---
+# --- UI: 2x2 UPLOAD GRID ---
 col1, col2 = st.columns(2)
 sem_layout = [("Sem 1", col1), ("Sem 2", col2), ("Sem 3", col1), ("Sem 4", col2)]
 
@@ -84,56 +86,57 @@ for sem_name, col in sem_layout:
         with st.container(border=True):
             st.subheader(f"📄 {sem_name}")
             
-            # Check if we already have this sem in the cloud
+            # Status from Supabase
             if sem_name in cloud_data:
                 st.success(f"Current SGPA: {cloud_data[sem_name]['sgpa']:.2f}")
+            else:
+                st.info(f"Awaiting {sem_name} PDF...")
+
+            up_file = st.file_uploader(f"Upload Result", type="pdf", key=f"up_{sem_name}", label_visibility="collapsed")
             
-            uploaded_file = st.file_uploader(f"Upload", type="pdf", key=f"file_{sem_name}", label_visibility="collapsed")
-            
-            if uploaded_file:
-                file_bytes = uploaded_file.getvalue()
-                COURSE_INFO = UNIVERSITY_DATA["ECE"][sem_name]
-                
-                with st.spinner("Processing & Syncing..."):
-                    extracted = extract_grades_from_pdf(file_bytes, COURSE_INFO)
+            if up_file:
+                # Add a button so you can explicitly trigger the save
+                if st.button(f"Save {sem_name} to Cloud", key=f"btn_{sem_name}"):
+                    file_bytes = up_file.getvalue()
+                    COURSE_INFO = UNIVERSITY_DATA["ECE"][sem_name]
                     
-                    if extracted:
-                        sem_points, sem_credits = 0.0, 0.0
-                        seen_subjects = set()
+                    with st.spinner(f"Processing {sem_name}..."):
+                        extracted = extract_grades_from_pdf(file_bytes, COURSE_INFO)
                         
-                        for item in extracted:
-                            if item['Subject Name'] in seen_subjects: continue
-                            seen_subjects.add(item['Subject Name'])
+                        if extracted:
+                            sem_pts, sem_creds = 0.0, 0.0
+                            seen = set()
+                            for item in extracted:
+                                if item['Subject Name'] in seen: continue
+                                seen.add(item['Subject Name'])
+                                
+                                code, grade = item['Course Code'], item['Grade']
+                                cred = COURSE_INFO[code]['credits']
+                                
+                                # YOUR LOGIC: F -> E conversion
+                                pts = 4.0 if grade == 'F' else GRADE_POINTS[grade]
+                                
+                                sem_pts += (cred * pts)
+                                sem_creds += cred
                             
-                            code = item['Course Code']
-                            grade = item['Grade']
-                            credit = COURSE_INFO[code]['credits']
-                            
-                            # YOUR LOGIC: F -> E conversion
-                            points = 4.0 if grade == 'F' else GRADE_POINTS[grade]
-                            
-                            sem_points += (credit * points)
-                            sem_credits += credit
-                        
-                        if sem_credits > 0:
-                            sgpa = sem_points / sem_credits
-                            
-                            # SYNC TO SUPABASE
-                            payload = {
-                                "profile_id": CURRENT_USER,
-                                "semester": sem_name,
-                                "sgpa": sgpa,
-                                "points": sem_points,
-                                "credits": sem_credits
-                            }
-                            supabase.table("rtu_data").upsert(payload).execute()
-                            st.rerun() # Refresh to update the top metrics
-                    else:
-                        st.error("No valid course codes detected.")
+                            if sem_creds > 0:
+                                sgpa = sem_pts / sem_creds
+                                payload = {
+                                    "profile_id": CURRENT_USER,
+                                    "semester": sem_name,
+                                    "sgpa": sgpa,
+                                    "points": sem_pts,
+                                    "credits": sem_creds
+                                }
+                                # Save to Supabase and refresh
+                                supabase.table("rtu_data").upsert(payload).execute()
+                                st.rerun()
+                        else:
+                            st.error("No valid RTU codes found in this PDF.")
 
 # --- FOOTER ---
 if cloud_data:
-    with st.expander("🗑️ Database Management"):
-        if st.button("Clear All Cloud Records"):
-            supabase.table("rtu_data").delete().eq("profile_id", CURRENT_USER).execute()
-            st.rerun()
+    st.write("---")
+    if st.button("🗑️ Reset All Cloud Data"):
+        supabase.table("rtu_data").delete().eq("profile_id", CURRENT_USER).execute()
+        st.rerun()
