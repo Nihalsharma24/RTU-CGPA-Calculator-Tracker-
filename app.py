@@ -17,16 +17,17 @@ GRADE_POINTS = {
 }
 
 # --- User Interface & Selection ---
-st.title("🎓 RTU Universal SGPA Calculator")
-st.write("Select your semester and upload your result PDF.")
+st.title("🎓 RTU Universal SGPA & CGPA Tracker")
+st.write("Upload your results semester by semester to build your running CGPA.")
 
-# 2. Add the Dropdown Menu
+# 1. Initialize the Short-Term Memory Locker
+if 'saved_semesters' not in st.session_state:
+    st.session_state.saved_semesters = {}
+
 selected_sem = st.selectbox("Select Semester", ["Sem 1", "Sem 2", "Sem 3", "Sem 4"])
-
-# 3. Set the active course list based on what the user picked
 COURSE_INFO = UNIVERSITY_DATA["ECE"][selected_sem]
 
-# --- The Extractor Function ---
+# ... [Keep your exact def extract_grades_from_pdf function here] ...
 def extract_grades_from_pdf(pdf_file, active_courses):
     extracted_data = []
     with pdfplumber.open(pdf_file) as pdf:
@@ -68,7 +69,7 @@ def extract_grades_from_pdf(pdf_file, active_courses):
     return extracted_data
 
 # --- Math & Display Logic ---
-uploaded_file = st.file_uploader("Upload Result PDF", type="pdf")
+uploaded_file = st.file_uploader(f"Upload {selected_sem} Result PDF", type="pdf")
 
 if uploaded_file is not None:
     try:
@@ -76,10 +77,15 @@ if uploaded_file is not None:
             extracted_grades = extract_grades_from_pdf(uploaded_file, COURSE_INFO)
             
             if not extracted_grades:
-                st.error("Could not find valid course codes or grades. Ensure you selected the correct semester.")
+                st.error("Could not find valid course codes. Ensure you selected the correct semester.")
             else:
                 total_credit_points = 0.0
                 total_credits = 0.0
+                
+                # These variables are strictly for the CGPA rules (ignoring F grades)
+                cgpa_points = 0.0
+                cgpa_credits = 0.0
+                
                 results_for_display = []
                 
                 for item in extracted_grades:
@@ -92,8 +98,14 @@ if uploaded_file is not None:
                     credit = COURSE_INFO[code]['credits']
                     points = GRADE_POINTS[grade]
                     
+                    # Standard SGPA Math (includes F grades)
                     total_credit_points += (credit * points)
                     total_credits += credit
+                    
+                    # Official CGPA Math (ignores F grades)
+                    if grade != 'F':
+                        cgpa_points += (credit * points)
+                        cgpa_credits += credit
                     
                     results_for_display.append({
                         "Subject Name": item['Subject Name'],
@@ -106,10 +118,30 @@ if uploaded_file is not None:
                 if total_credits > 0:
                     sgpa = total_credit_points / total_credits
                     
-                    st.metric(label="Calculated SGPA", value=f"{sgpa:.2f}")
+                    # 2. Save the official CGPA numbers to the Locker for this specific semester
+                    st.session_state.saved_semesters[selected_sem] = {
+                        'points': cgpa_points,
+                        'credits': cgpa_credits
+                    }
+                    
+                    # 3. Calculate the running total from the Locker
+                    running_cgpa_points = sum(sem['points'] for sem in st.session_state.saved_semesters.values())
+                    running_cgpa_credits = sum(sem['credits'] for sem in st.session_state.saved_semesters.values())
+                    
+                    # Display the Metrics side-by-side
+                    col1, col2 = st.columns(2)
+                    col1.metric(label=f"{selected_sem} SGPA", value=f"{sgpa:.2f}")
+                    
+                    if running_cgpa_credits > 0:
+                        running_cgpa = running_cgpa_points / running_cgpa_credits
+                        col2.metric(label="Current CGPA", value=f"{running_cgpa:.2f}")
                     
                     st.write("### Detailed Breakdown")
                     st.dataframe(pd.DataFrame(results_for_display), use_container_width=True)
+                    
+                    # Show the user what is currently in their locker
+                    st.write("---")
+                    st.write(f"**Semesters currently tracked in CGPA:** {', '.join(st.session_state.saved_semesters.keys())}")
                         
     except Exception as e:
         st.error(f"An error occurred: {e}")
