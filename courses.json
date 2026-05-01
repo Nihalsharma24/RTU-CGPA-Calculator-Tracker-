@@ -1,0 +1,57 @@
+{
+  "ECE": {
+    "Sem 1": {
+      "1FY1-04": {"name": "Communication Skills", "credits": 2.0},
+      "1FY1-22": {"name": "Language Lab", "credits": 1.0},
+      "1FY2-01": {"name": "Engineering Mathematics-I", "credits": 4.0},
+      "1FY2-02": {"name": "Engineering Physics", "credits": 4.0},
+      "1FY2-20": {"name": "Engineering Physics Lab", "credits": 1.0},
+      "1FY3-07": {"name": "Basic Mechanical Engineering", "credits": 2.0},
+      "1FY3-08": {"name": "Basic Electrical Engineering", "credits": 2.0},
+      "1FY3-25": {"name": "Manufacturing Practices Workshop", "credits": 1.5},
+      "1FY3-26": {"name": "Basic Electrical Engineering Lab", "credits": 1.0},
+      "1FY3-29": {"name": "Computer Aided Machine Drawing", "credits": 1.5},
+      "FEC01": {"name": "Sports I", "credits": 0.5}
+    },
+    "Sem 2": {
+      "2FY1-05": {"name": "Human Values", "credits": 2.0},
+      "2FY1-23": {"name": "Human Values Activities & Sports", "credits": 1.0},
+      "2FY2-01": {"name": "Engineering Mathematics-II", "credits": 4.0},
+      "2FY2-03": {"name": "Engineering Chemistry", "credits": 4.0},
+      "2FY2-21": {"name": "Engineering Chemistry Lab", "credits": 1.0},
+      "2FY3-06": {"name": "Programming For Problem Solving", "credits": 3.0},
+      "2FY3-09": {"name": "Basic Civil Engineering", "credits": 2.0},
+      "2FY3-24": {"name": "Computer Programming Lab", "credits": 1.5},
+      "2FY3-27": {"name": "Basic Civil Engineering Lab", "credits": 1.0},
+      "2FY3-28": {"name": "Computer Aided Engineering Graphics", "credits": 1.5},
+      "FEC02": {"name": "Sports II", "credits": 0.5}
+    },
+    "Sem 3": {
+      "3EC1-02": {"name": "Technical Communication", "credits": 2.0},
+      "3EC2-01": {"name": "Adv. Engineering Mathematics-I", "credits": 3.0},
+      "3EC3-24": {"name": "Computer Programming Lab-I", "credits": 1.0},
+      "3EC4-04": {"name": "Digital System Design", "credits": 3.0},
+      "3EC4-05": {"name": "Signal & Systems", "credits": 3.0},
+      "3EC4-06": {"name": "Network Theory", "credits": 4.0},
+      "3EC4-07": {"name": "Electronics Devices", "credits": 4.0},
+      "3EC4-21": {"name": "Electronics Devices Lab", "credits": 1.0},
+      "3EC4-22": {"name": "Digital System Design Lab", "credits": 1.0},
+      "3EC4-23": {"name": "Signal Processing Lab", "credits": 1.0},
+      "3EC7-30": {"name": "Industrial Training", "credits": 1.0},
+      "FEC18": {"name": "Entrepreneurship Development", "credits": 0.5}
+    },
+    "Sem 4": {
+      "4EC1-03": {"name": "Managerial Economics & Financial Accounting", "credits": 2.0},
+      "4EC2-01": {"name": "Advanced Engineering Mathematics-II", "credits": 3.0},
+      "4EC3-06": {"name": "Electronics Measurement & Instrumentation", "credits": 3.0},
+      "4EC4-04": {"name": "Analog Circuits", "credits": 3.0},
+      "4EC4-05": {"name": "Microcontrollers", "credits": 3.0},
+      "4EC4-07": {"name": "Analog and Digital Communication", "credits": 3.0},
+      "4EC4-21": {"name": "Analog and Digital Communication Lab", "credits": 1.5},
+      "4EC4-22": {"name": "Analog Circuits Lab", "credits": 1.5},
+      "4EC4-23": {"name": "Microcontrollers Lab", "credits": 1.5},
+      "4EC4-24": {"name": "Electronics Measurement & Instrumentation Lab", "credits": 1.5},
+      "FEC28": {"name": "SATKAAM: Preparing Form Campus to Corporate Life", "credits": 0.5}
+    }
+  }
+}
