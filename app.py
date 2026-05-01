@@ -1,8 +1,13 @@
 import streamlit as st
 import pdfplumber
 import pandas as pd
+import json
 
-st.set_page_config(page_title="RTU ECE 3rd Sem SGPA Calc", layout="centered")
+st.set_page_config(page_title="RTU Universal SGPA Calc", layout="centered")
+
+# 1. Read the new JSON Database
+with open('courses.json', 'r') as file:
+    UNIVERSITY_DATA = json.load(file)
 
 # RTU Grade to Points Mapping
 GRADE_POINTS = {
@@ -11,23 +16,18 @@ GRADE_POINTS = {
     'E': 4.0, 'F': 0.0
 }
 
-# 3rd Sem ECE Info: Course Code -> Subject Name & Credits
-COURSE_INFO = {
-    '3EC1-02': {'name': 'Technical Communication', 'credits': 2.0},
-    '3EC2-01': {'name': 'Adv. Engineering Mathematics-I', 'credits': 3.0},
-    '3EC3-24': {'name': 'Computer Programming Lab-I', 'credits': 1.0},
-    '3EC4-04': {'name': 'Digital System Design', 'credits': 3.0},
-    '3EC4-05': {'name': 'Signal & Systems', 'credits': 3.0},
-    '3EC4-06': {'name': 'Network Theory', 'credits': 4.0},
-    '3EC4-07': {'name': 'Electronics Devices', 'credits': 4.0},
-    '3EC4-21': {'name': 'Electronics Devices Lab', 'credits': 1.0},
-    '3EC4-22': {'name': 'Digital System Design Lab', 'credits': 1.0},
-    '3EC4-23': {'name': 'Signal Processing Lab', 'credits': 1.0},
-    '3EC7-30': {'name': 'Industrial Training', 'credits': 1.0},
-    'FEC18': {'name': 'Entrepreneurship Development', 'credits': 0.5}
-}
+# --- User Interface & Selection ---
+st.title("🎓 RTU Universal SGPA Calculator")
+st.write("Select your semester and upload your result PDF.")
 
-def extract_grades_from_pdf(pdf_file):
+# 2. Add the Dropdown Menu
+selected_sem = st.selectbox("Select Semester", ["Sem 1", "Sem 2", "Sem 3", "Sem 4"])
+
+# 3. Set the active course list based on what the user picked
+COURSE_INFO = UNIVERSITY_DATA["ECE"][selected_sem]
+
+# --- The Extractor Function ---
+def extract_grades_from_pdf(pdf_file, active_courses):
     extracted_data = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -36,22 +36,18 @@ def extract_grades_from_pdf(pdf_file):
                 continue
             
             for line in text.split('\n'):
-                for code in COURSE_INFO.keys():
+                for code in active_courses.keys(): 
                     if code in line:
                         parts = line.strip().split()
                         try:
-                            # Find where the course code is in the line
                             code_idx = parts.index(code)
                             grade = parts[-1] 
                             
-                            # Calculate how many items are after the course code
                             items_after_code = len(parts) - 1 - code_idx
                             
-                            # Standard subjects have Midterm, Endterm, and Grade after the code
-                            if items_after_code == 3: 
+                            if items_after_code >= 3: 
                                 internal = parts[code_idx + 1]
                                 external = parts[code_idx + 2]
-                            # Some subjects (like SODECA/FEC18) might only have an Endterm mark
                             elif items_after_code == 2:
                                 internal = "-"
                                 external = parts[code_idx + 1]
@@ -62,7 +58,7 @@ def extract_grades_from_pdf(pdf_file):
                             if grade in GRADE_POINTS:
                                 extracted_data.append({
                                     'Course Code': code,
-                                    'Subject Name': COURSE_INFO[code]['name'],
+                                    'Subject Name': active_courses[code]['name'],
                                     'Internal Marks': internal,
                                     'External Marks': external,
                                     'Grade': grade
@@ -71,19 +67,16 @@ def extract_grades_from_pdf(pdf_file):
                             continue
     return extracted_data
 
-# --- User Interface ---
-st.title("🎓 RTU ECE 3rd Sem SGPA Calculator")
-st.write("Upload your 3rd Semester result PDF to instantly calculate your SGPA and view your exact marks.")
-
+# --- Math & Display Logic ---
 uploaded_file = st.file_uploader("Upload Result PDF", type="pdf")
 
 if uploaded_file is not None:
     try:
         with st.spinner("Analyzing result..."):
-            extracted_grades = extract_grades_from_pdf(uploaded_file)
+            extracted_grades = extract_grades_from_pdf(uploaded_file, COURSE_INFO)
             
             if not extracted_grades:
-                st.error("Could not find valid course codes or grades. Ensure it's the 3rd Sem ECE result.")
+                st.error("Could not find valid course codes or grades. Ensure you selected the correct semester.")
             else:
                 total_credit_points = 0.0
                 total_credits = 0.0
@@ -93,7 +86,6 @@ if uploaded_file is not None:
                     code = item['Course Code']
                     grade = item['Grade']
                     
-                    # Prevent duplicates
                     if any(r['Subject Name'] == item['Subject Name'] for r in results_for_display):
                         continue
                         
@@ -118,9 +110,6 @@ if uploaded_file is not None:
                     
                     st.write("### Detailed Breakdown")
                     st.dataframe(pd.DataFrame(results_for_display), use_container_width=True)
-                    
-                    if total_credits < 24.5:
-                        st.warning(f"Note: Only found {total_credits} out of 24.5 total credits. Your PDF might be missing subjects.")
                         
     except Exception as e:
         st.error(f"An error occurred: {e}")
