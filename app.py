@@ -355,6 +355,7 @@ for sem_name, col in sem_layout:
 
                 if extracted:
                     sem_pts, sem_creds, seen, rows = 0.0, 0.0, set(), []
+                    fail_subjects = []   # track F-grade subjects
 
                     for item in extracted:
                         if item['Subject Name'] in seen:
@@ -366,6 +367,10 @@ for sem_name, col in sem_layout:
                         pts  = 4.0 if grade == 'F' else GRADE_POINTS[grade]
                         sem_pts   += cred * pts
                         sem_creds += cred
+
+                        if grade == 'F':
+                            fail_subjects.append(item['Subject Name'])
+
                         rows.append({
                             "Subject": item['Subject Name'],
                             "Credits": cred,
@@ -376,8 +381,29 @@ for sem_name, col in sem_layout:
                         sgpa   = sem_pts / sem_creds
                         df_sub = pd.DataFrame(rows)
 
+                        # ── Pending backlogs warning ──────────────────
+                        if fail_subjects:
+                            backs_list = "\n".join(f"• {s}" for s in fail_subjects)
+                            st.warning(
+                                f"⚠️ **{len(fail_subjects)} Pending Back(s) Detected**\n\n"
+                                f"{backs_list}\n\n"
+                                f"📌 *Note: F grades have been treated as E (4.0 pts) "
+                                f"for SGPA/CGPA prediction. Clear your backs to improve your actual score.*",
+                                icon=None
+                            )
+
                         with st.expander(f"✅ {sgpa:.2f} SGPA — View Subjects & Grade Chart"):
                             st.dataframe(df_sub, use_container_width=True, hide_index=True)
+
+                            # F → E calculation note
+                            if fail_subjects:
+                                st.info(
+                                    "ℹ️ **F → E Conversion Applied:** Subjects with F grade are "
+                                    "assigned 4.0 grade points (equivalent to E) solely for "
+                                    "SGPA/CGPA estimation. This does **not** reflect clearance "
+                                    "of the backlog.",
+                                    icon=None
+                                )
 
                             # Grade distribution bar chart
                             st.caption("Grade Distribution")
@@ -385,7 +411,7 @@ for sem_name, col in sem_layout:
                                 df_sub['Grade']
                                 .value_counts()
                                 .reindex([g if g != 'F' else 'F ➔ E' for g in ALL_GRADES], fill_value=0)
-                                .loc[lambda s: s > 0]  # hide zero-count grades
+                                .loc[lambda s: s > 0]
                             )
                             st.bar_chart(grade_counts, height=160)
 
