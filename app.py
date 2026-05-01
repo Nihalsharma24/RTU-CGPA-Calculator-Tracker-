@@ -62,19 +62,15 @@ st.write("Upload your results on the left to build your running CGPA profile.")
 st.write("---")
 
 # --- UI: The 60/40 Split ---
-# [2, 1] means the left panel gets 2 shares of the space, the right gets 1 share.
 left_panel, right_panel = st.columns([2, 1], gap="large")
 
-# We set up global buckets to catch the math from the left panel
-global_cgpa_points = 0.0
-global_cgpa_credits = 0.0
-semesters_uploaded = 0
+# NEW: A dictionary to hold our data before we chart it
+processed_semesters = {}
 
 # --- THE ACTION AREA (Left Panel) ---
 with left_panel:
     st.subheader("📥 Upload Results")
     
-    # We nest the 2x2 grid INSIDE the left panel
     col1, col2 = st.columns(2)
     sem_layout = [("Sem 1", col1), ("Sem 2", col2), ("Sem 3", col1), ("Sem 4", col2)]
 
@@ -125,9 +121,13 @@ with left_panel:
                             
                             if sem_credits > 0:
                                 sgpa = sem_points / sem_credits
-                                global_cgpa_points += sem_points
-                                global_cgpa_credits += sem_credits
-                                semesters_uploaded += 1
+                                
+                                # NEW: Save the math into our dictionary instead of global variables
+                                processed_semesters[sem_name] = {
+                                    "sgpa": sgpa,
+                                    "points": sem_points,
+                                    "credits": sem_credits
+                                }
                                 
                                 st.metric(label="Predicted SGPA", value=f"{sgpa:.2f}")
                                 
@@ -141,20 +141,52 @@ with right_panel:
     st.subheader("📊 Your Profile")
     
     with st.container(border=True):
-        if global_cgpa_credits > 0:
-            running_cgpa = global_cgpa_points / global_cgpa_credits
+        if processed_semesters:
+            # 1. Sort the semesters chronologically so the graph flows left to right
+            sorted_sems = sorted(processed_semesters.keys())
             
-            st.metric(label="🌟 Predicted CGPA", value=f"{running_cgpa:.2f}")
-            st.write("---")
-            st.metric(label="📚 Semesters Tracked", value=f"{semesters_uploaded} / 4")
+            # 2. Build the timeline data
+            timeline_data = []
+            run_points = 0.0
+            run_credits = 0.0
+            
+            for sem in sorted_sems:
+                data = processed_semesters[sem]
+                run_points += data['points']
+                run_credits += data['credits']
+                
+                timeline_data.append({
+                    "Semester": sem,
+                    "SGPA": data['sgpa'],
+                    "CGPA": run_points / run_credits
+                })
+            
+            # 3. Final global metrics
+            final_cgpa = run_points / run_credits
+            semesters_uploaded = len(processed_semesters)
+            
+            st.metric(label="🌟 Predicted CGPA", value=f"{final_cgpa:.2f}")
+            st.caption(f"Tracking {semesters_uploaded} / 4 Semesters")
             
             st.write("---")
-            if running_cgpa >= 8.5:
+            
+            # 4. DRAW THE CHART
+            st.write("**Performance Trend**")
+            # We convert our list of data into a Pandas DataFrame and tell it to use "Semester" as the X-axis
+            df_chart = pd.DataFrame(timeline_data).set_index("Semester")
+            
+            # Streamlit's native line chart. We explicitly map the Y-axis lines and give them distinct colors.
+            st.line_chart(df_chart, y=["SGPA", "CGPA"], color=["#FF4B4B", "#0068C9"])
+            
+            st.write("---")
+            
+            # 5. Dynamic Trajectory Feedback
+            if final_cgpa >= 8.5:
                 st.success("🔥 Honors Trajectory! Keep it up.")
-            elif running_cgpa >= 7.0:
+            elif final_cgpa >= 7.0:
                 st.info("👍 Solid standing. You're doing great.")
             else:
                 st.warning("Keep pushing, you've got this!")
         else:
             st.write("Upload at least one semester on the left to see your dashboard insights here.")
-            st.caption("Your overall metrics, trajectory, and insights will appear here once data is calculated.")
+            st.caption("Your overall metrics, trajectory graph, and insights will appear here once data is calculated.")
