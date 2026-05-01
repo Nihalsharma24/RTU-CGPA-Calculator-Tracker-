@@ -5,17 +5,27 @@ import json
 import io
 from supabase import create_client
 
-# --- INITIAL SETUP ---
-st.set_page_config(page_title="RTU Performance Dashboard", layout="wide")
+# --- DASHBOARD THEME & CONFIG ---
+st.set_page_config(page_title="RTU ECE Analytics", layout="wide", initial_sidebar_state="collapsed")
+
+# Custom CSS for a modern, compact "Nothing-inspired" UI
+st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] { font-size: 2.2rem; font-weight: 700; color: #FF4B4B; }
+    .stMetric { background: #111; padding: 15px; border-radius: 12px; border: 1px solid #333; }
+    .upload-card { background: #0e1117; padding: 10px; border-radius: 8px; border: 1px dashed #444; }
+    .stExpander { border: none !important; box-shadow: none !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
 @st.cache_resource
 def init_connection():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 supabase = init_connection()
-CURRENT_USER = "demo_user" 
+CURRENT_USER = "demo_user"
 
-# --- DATA LOADING ---
+# --- DATA & LOGIC ---
 with open('courses.json', 'r') as file:
     UNIVERSITY_DATA = json.load(file)
 
@@ -25,17 +35,12 @@ GRADE_POINTS = {
     'E': 4.0, 'F': 0.0
 }
 
-# --- DATABASE FETCH ---
 def get_cloud_data():
     try:
         res = supabase.table("rtu_data").select("*").eq("profile_id", CURRENT_USER).execute()
         return {row['semester']: row for row in res.data}
-    except:
-        return {}
+    except: return {}
 
-cloud_data = get_cloud_data()
-
-# --- PDF EXTRACTION LOGIC ---
 @st.cache_data
 def extract_grades_from_pdf(file_content, active_courses):
     pdf_file = io.BytesIO(file_content)
@@ -49,107 +54,109 @@ def extract_grades_from_pdf(file_content, active_courses):
                     if code in line:
                         parts = line.strip().split()
                         try:
-                            code_idx = parts.index(code)
                             grade = parts[-1] 
                             if grade in GRADE_POINTS:
-                                extracted_data.append({
-                                    'Course Code': code,
-                                    'Subject Name': active_courses[code]['name'],
-                                    'Grade': grade
-                                })
-                        except ValueError: continue
+                                extracted_data.append({'Course Code': code, 'Subject Name': active_courses[code]['name'], 'Grade': grade})
+                        except: continue
     return extracted_data
 
-# --- UI: TOP METRICS ---
-st.title("🎓 RTU Performance Dashboard")
-metric_col1, metric_col2 = st.columns(2)
+cloud_data = get_cloud_data()
+
+# --- UI HEADER: QUICK STATS ---
+st.title("📊 ECE Performance Analytics")
+m1, m2, m3, m4 = st.columns(4)
 
 if cloud_data:
+    # Sorting semesters numerically for the logic
+    sorted_keys = sorted(cloud_data.keys(), key=lambda x: int(x.split()[-1]))
     total_pts = sum(v['points'] for v in cloud_data.values())
     total_creds = sum(v['credits'] for v in cloud_data.values())
-    final_cgpa = total_pts / total_creds if total_creds > 0 else 0
+    cgpa = total_pts / total_creds if total_creds > 0 else 0
     
-    metric_col1.metric("🌟 Predicted CGPA", f"{final_cgpa:.2f}")
-    metric_col2.metric("📚 Semesters Sync'd", f"{len(cloud_data)} / 4")
+    m1.metric("Current CGPA", f"{cgpa:.2f}")
+    m2.metric("Total Credits", f"{int(total_creds)}")
+    
+    # Simple logic for "Trajectory" based on last upload
+    last_sgpa = cloud_data[sorted_keys[-1]]['sgpa']
+    m3.metric("Latest SGPA", f"{last_sgpa:.2f}", delta=f"{(last_sgpa - cgpa):.2f}" if len(cloud_data) > 1 else None)
+    
+    status = "Honors" if cgpa >= 8.5 else "First Div" if cgpa >= 6.0 else "Regular"
+    m4.metric("Status", status)
 else:
-    metric_col1.metric("🌟 Predicted CGPA", "0.00")
-    metric_col2.metric("📚 Semesters Sync'd", "0 / 4")
+    for m in [m1, m2, m3, m4]: m.metric("-", "0.00")
 
 st.write("---")
 
-# --- UI: 2x2 UPLOAD GRID ---
-col1, col2 = st.columns(2)
-sem_layout = [("Sem 1", col1), ("Sem 2", col2), ("Sem 3", col1), ("Sem 4", col2)]
+# --- MAIN DASHBOARD: GRAPH AREA ---
+if cloud_data:
+    # Prepare DataFrame for the "Beautiful Graph"
+    plot_data = []
+    run_pts, run_creds = 0.0, 0.0
+    for sem in sorted_keys:
+        d = cloud_data[sem]
+        run_pts += d['points']
+        run_creds += d['credits']
+        plot_data.append({"Semester": sem, "SGPA": d['sgpa'], "Running CGPA": run_pts / run_creds})
+    
+    df = pd.DataFrame(plot_data).set_index("Semester")
+    
+    # Beautiful Line Chart with custom height
+    st.write("### 📈 Performance Trend")
+    st.line_chart(df, y=["SGPA", "Running CGPA"], color=["#FF4B4B", "#0068C9"], height=350)
+else:
+    st.info("No data found. Upload your first marksheet to generate the trend graph.")
 
-for sem_name, col in sem_layout:
-    with col:
-        with st.container(border=True):
-            st.subheader(f"📄 {sem_name}")
+st.write("---")
+
+# --- UI: COMPACT ACTION BAR (Horizontal Uploaders) ---
+st.write("### 📥 Semester Actions")
+upload_cols = st.columns(4)
+target_sems = ["Semester 1", "Semester 2", "Semester 3", "Semester 4"]
+
+for i, sem in enumerate(target_sems):
+    with upload_cols[i]:
+        # Using a thin expander for "Less space"
+        with st.expander(f"⚙️ {sem}", expanded=(sem not in cloud_data)):
+            if sem in cloud_data:
+                st.caption(f"Stored: {cloud_data[sem]['sgpa']:.2f}")
             
-            # Show existing Cloud status
-            if sem_name in cloud_data:
-                st.success(f"Current SGPA: {cloud_data[sem_name]['sgpa']:.2f}")
-
-            up_file = st.file_uploader(f"Upload Result", type="pdf", key=f"up_{sem_name}", label_visibility="collapsed")
+            up_file = st.file_uploader("Drop PDF", type="pdf", key=f"u_{sem}", label_visibility="collapsed")
             
             if up_file:
                 file_bytes = up_file.getvalue()
-                COURSE_INFO = UNIVERSITY_DATA["ECE"][sem_name]
+                COURSE_INFO = UNIVERSITY_DATA["ECE"][sem]
                 
-                # AUTOMATIC EXTRACTION (No button needed)
-                extracted = extract_grades_from_pdf(file_bytes, COURSE_INFO)
-                
-                if extracted:
-                    sem_pts, sem_creds = 0.0, 0.0
-                    display_list = []
-                    seen = set()
-                    
-                    for item in extracted:
-                        if item['Subject Name'] in seen: continue
-                        seen.add(item['Subject Name'])
+                with st.spinner("Syncing..."):
+                    extracted = extract_grades_from_pdf(file_bytes, COURSE_INFO)
+                    if extracted:
+                        sem_pts, sem_creds, seen = 0.0, 0.0, set()
+                        for item in extracted:
+                            if item['Subject Name'] in seen: continue
+                            seen.add(item['Subject Name'])
+                            
+                            code, grade = item['Course Code'], item['Grade']
+                            cred = COURSE_INFO[code]['credits']
+                            pts = 4.0 if grade == 'F' else GRADE_POINTS[grade]
+                            
+                            sem_pts += (cred * pts)
+                            sem_creds += cred
                         
-                        code, grade = item['Course Code'], item['Grade']
-                        cred = COURSE_INFO[code]['credits']
-                        
-                        # YOUR LOGIC: F -> E conversion
-                        pts = 4.0 if grade == 'F' else GRADE_POINTS[grade]
-                        disp_grade = 'F ➔ E' if grade == 'F' else grade
-                        
-                        sem_pts += (cred * pts)
-                        sem_creds += cred
-                        
-                        display_list.append({
-                            "Subject": item['Subject Name'],
-                            "Credits": cred,
-                            "Grade": disp_grade
-                        })
-                    
-                    if sem_creds > 0:
-                        sgpa = sem_pts / sem_creds
-                        
-                        # 1. SHOW THE BREAKDOWN (Dropdown/Expander)
-                        st.metric(label="Extracted SGPA", value=f"{sgpa:.2f}")
-                        with st.expander(f"View {sem_name} Subjects"):
-                            st.dataframe(pd.DataFrame(display_list), use_container_width=True, hide_index=True)
-                        
-                        # 2. AUTOMATIC SYNC TO SUPABASE
-                        # We only upsert if the data has changed to prevent infinite reruns
-                        if sem_name not in cloud_data or abs(cloud_data[sem_name]['sgpa'] - sgpa) > 0.001:
-                            payload = {
-                                "profile_id": CURRENT_USER,
-                                "semester": sem_name,
-                                "sgpa": sgpa,
-                                "points": sem_pts,
-                                "credits": sem_creds
-                            }
+                        if sem_creds > 0:
+                            sgpa = sem_pts / sem_creds
+                            payload = {"profile_id": CURRENT_USER, "semester": sem, "sgpa": sgpa, "points": sem_pts, "credits": sem_creds}
                             supabase.table("rtu_data").upsert(payload).execute()
-                            st.rerun() 
-                else:
-                    st.error("No valid RTU codes detected in this PDF.")
+                            st.rerun()
 
-# --- FOOTER ---
+# --- QoL FOOTER ---
 if cloud_data:
     st.write("---")
-    if st.button("🗑️ Reset Cloud Dashboard"):
-        supabase.table("rtu_data").delete().eq("profile_id", CURRENT_USER).execute()
-        st.rerun()
+    with st.expander("🛠️ Advanced Options"):
+        c1, c2 = st.columns([3, 1])
+        c1.write("Download your cloud data as CSV for your own records.")
+        if c1.button("Export CSV"):
+            pd.DataFrame(list(cloud_data.values())).to_csv("my_grades.csv")
+            st.toast("Exported!")
+        
+        if c2.button("🗑️ Reset All", use_container_width=True):
+            supabase.table("rtu_data").delete().eq("profile_id", CURRENT_USER).execute()
+            st.rerun()
