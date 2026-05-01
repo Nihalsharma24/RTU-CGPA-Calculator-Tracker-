@@ -235,13 +235,6 @@ def compute_cgpa(data: dict) -> float:
     return pts / creds if creds > 0 else 0.0
 
 
-def sem_total_credits(sem_name: str) -> float:
-    """Sum of credits for a semester from courses.json."""
-    try:
-        return float(sum(v['credits'] for v in UNIVERSITY_DATA[CURRENT_BRANCH][sem_name].values()))
-    except KeyError:
-        return 20.0   # safe fallback
-
 
 # ═══════════════════════════════════════════════════════════
 # SIDEBAR
@@ -409,58 +402,3 @@ for sem_name, col in sem_layout:
                             st.rerun()
                 else:
                     st.error("No valid RTU subject codes detected in this PDF.")
-
-
-# ═══════════════════════════════════════════════════════════
-# WHAT-IF CGPA SIMULATOR
-# ═══════════════════════════════════════════════════════════
-st.write("---")
-st.subheader("🧪 What-If CGPA Simulator")
-st.caption(
-    "Drag the sliders to model different scenarios. "
-    "Pre-filled from your synced data where available. "
-    "**Does not modify any saved results.**"
-)
-
-sim_sgpas, sim_credits = {}, {}
-slider_cols = st.columns(4)
-
-for i, sem_name in enumerate(SEMESTERS):
-    with slider_cols[i]:
-        default  = float(round(cloud_data[sem_name]['sgpa'], 1)) if sem_name in cloud_data else 7.0
-        creds    = sem_total_credits(sem_name)
-        sim_val  = st.slider(
-            sem_name,
-            min_value=4.0, max_value=10.0,
-            value=default, step=0.1,
-            key=f"sim_{sem_name}"
-        )
-        sim_sgpas[sem_name]  = sim_val
-        sim_credits[sem_name] = creds
-        st.caption(f"Credits: {int(creds)}")
-
-# Weighted CGPA from slider values
-total_sim_pts   = sum(sim_sgpas[s] * sim_credits[s] for s in SEMESTERS)
-total_sim_creds = sum(sim_credits[s] for s in SEMESTERS)
-sim_cgpa        = total_sim_pts / total_sim_creds if total_sim_creds > 0 else 0.0
-
-delta = (sim_cgpa - compute_cgpa(cloud_data)) if cloud_data else None
-
-res1, res2 = st.columns([1, 3])
-res1.metric(
-    "🧪 Simulated CGPA",
-    f"{sim_cgpa:.2f}",
-    delta=f"{delta:+.2f}" if delta is not None else None,
-    delta_color="normal"
-)
-with res2:
-    df_sim = pd.DataFrame([
-        {
-            "Semester":    s,
-            "Sim SGPA":   f"{sim_sgpas[s]:.1f}",
-            "Credits":    int(sim_credits[s]),
-            "Contribution": f"{(sim_sgpas[s]*sim_credits[s]/total_sim_creds):.2f}"
-        }
-        for s in SEMESTERS
-    ])
-    st.dataframe(df_sim, use_container_width=True, hide_index=True)
