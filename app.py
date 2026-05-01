@@ -13,7 +13,7 @@ def init_connection():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 supabase = init_connection()
-CURRENT_USER = "demo_user" # Consistent with your database table
+CURRENT_USER = "demo_user" 
 
 # --- DATA LOADING ---
 with open('courses.json', 'r') as file:
@@ -35,7 +35,7 @@ def get_cloud_data():
 
 cloud_data = get_cloud_data()
 
-# --- YOUR PDF EXTRACTION LOGIC ---
+# --- PDF EXTRACTION LOGIC ---
 @st.cache_data
 def extract_grades_from_pdf(file_content, active_courses):
     pdf_file = io.BytesIO(file_content)
@@ -86,57 +86,70 @@ for sem_name, col in sem_layout:
         with st.container(border=True):
             st.subheader(f"📄 {sem_name}")
             
-            # Status from Supabase
+            # Show existing Cloud status
             if sem_name in cloud_data:
                 st.success(f"Current SGPA: {cloud_data[sem_name]['sgpa']:.2f}")
-            else:
-                st.info(f"Awaiting {sem_name} PDF...")
 
             up_file = st.file_uploader(f"Upload Result", type="pdf", key=f"up_{sem_name}", label_visibility="collapsed")
             
             if up_file:
-                # Add a button so you can explicitly trigger the save
-                if st.button(f"Save {sem_name} to Cloud", key=f"btn_{sem_name}"):
-                    file_bytes = up_file.getvalue()
-                    COURSE_INFO = UNIVERSITY_DATA["ECE"][sem_name]
+                file_bytes = up_file.getvalue()
+                COURSE_INFO = UNIVERSITY_DATA["ECE"][sem_name]
+                
+                # AUTOMATIC EXTRACTION (No button needed)
+                extracted = extract_grades_from_pdf(file_bytes, COURSE_INFO)
+                
+                if extracted:
+                    sem_pts, sem_creds = 0.0, 0.0
+                    display_list = []
+                    seen = set()
                     
-                    with st.spinner(f"Processing {sem_name}..."):
-                        extracted = extract_grades_from_pdf(file_bytes, COURSE_INFO)
+                    for item in extracted:
+                        if item['Subject Name'] in seen: continue
+                        seen.add(item['Subject Name'])
                         
-                        if extracted:
-                            sem_pts, sem_creds = 0.0, 0.0
-                            seen = set()
-                            for item in extracted:
-                                if item['Subject Name'] in seen: continue
-                                seen.add(item['Subject Name'])
-                                
-                                code, grade = item['Course Code'], item['Grade']
-                                cred = COURSE_INFO[code]['credits']
-                                
-                                # YOUR LOGIC: F -> E conversion
-                                pts = 4.0 if grade == 'F' else GRADE_POINTS[grade]
-                                
-                                sem_pts += (cred * pts)
-                                sem_creds += cred
-                            
-                            if sem_creds > 0:
-                                sgpa = sem_pts / sem_creds
-                                payload = {
-                                    "profile_id": CURRENT_USER,
-                                    "semester": sem_name,
-                                    "sgpa": sgpa,
-                                    "points": sem_pts,
-                                    "credits": sem_creds
-                                }
-                                # Save to Supabase and refresh
-                                supabase.table("rtu_data").upsert(payload).execute()
-                                st.rerun()
-                        else:
-                            st.error("No valid RTU codes found in this PDF.")
+                        code, grade = item['Course Code'], item['Grade']
+                        cred = COURSE_INFO[code]['credits']
+                        
+                        # YOUR LOGIC: F -> E conversion
+                        pts = 4.0 if grade == 'F' else GRADE_POINTS[grade]
+                        disp_grade = 'F ➔ E' if grade == 'F' else grade
+                        
+                        sem_pts += (cred * pts)
+                        sem_creds += cred
+                        
+                        display_list.append({
+                            "Subject": item['Subject Name'],
+                            "Credits": cred,
+                            "Grade": disp_grade
+                        })
+                    
+                    if sem_creds > 0:
+                        sgpa = sem_pts / sem_creds
+                        
+                        # 1. SHOW THE BREAKDOWN (Dropdown/Expander)
+                        st.metric(label="Extracted SGPA", value=f"{sgpa:.2f}")
+                        with st.expander(f"View {sem_name} Subjects"):
+                            st.dataframe(pd.DataFrame(display_list), use_container_width=True, hide_index=True)
+                        
+                        # 2. AUTOMATIC SYNC TO SUPABASE
+                        # We only upsert if the data has changed to prevent infinite reruns
+                        if sem_name not in cloud_data or abs(cloud_data[sem_name]['sgpa'] - sgpa) > 0.001:
+                            payload = {
+                                "profile_id": CURRENT_USER,
+                                "semester": sem_name,
+                                "sgpa": sgpa,
+                                "points": sem_pts,
+                                "credits": sem_creds
+                            }
+                            supabase.table("rtu_data").upsert(payload).execute()
+                            st.rerun() 
+                else:
+                    st.error("No valid RTU codes detected in this PDF.")
 
 # --- FOOTER ---
 if cloud_data:
     st.write("---")
-    if st.button("🗑️ Reset All Cloud Data"):
+    if st.button("🗑️ Reset Cloud Dashboard"):
         supabase.table("rtu_data").delete().eq("profile_id", CURRENT_USER).execute()
         st.rerun()
