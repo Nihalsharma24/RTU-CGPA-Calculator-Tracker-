@@ -84,9 +84,37 @@ def show_auth_page():
             </div>
         """, unsafe_allow_html=True)
 
+        # ── GUEST CTA  (primary, above the fold) ─────────────
+        st.markdown("""
+            <p style="text-align:center; color:#aaa; font-size:.85rem; margin-bottom:6px;">
+                No account? No problem.
+            </p>
+        """, unsafe_allow_html=True)
+
+        if st.button(
+            "👀  Continue as Guest",
+            type="primary",
+            use_container_width=True,
+            key="btn_guest"
+        ):
+            st.session_state["user"]      = None
+            st.session_state["is_guest"]  = True
+            st.rerun()
+
+        st.markdown("""
+            <p style="text-align:center; color:#555; font-size:.78rem; margin-top:6px;">
+                Guest data is temporary and not saved between sessions.
+            </p>
+            <div style="display:flex;align-items:center;gap:10px;margin:18px 0;">
+                <hr style="flex:1;border-color:#2e3040;">
+                <span style="color:#555;font-size:.8rem;">or sign in</span>
+                <hr style="flex:1;border-color:#2e3040;">
+            </div>
+        """, unsafe_allow_html=True)
+
+        # ── LOGIN / SIGNUP tabs (secondary) ──────────────────
         tab_login, tab_signup = st.tabs(["🔑 Log In", "📝 Sign Up"])
 
-        # ── LOGIN ─────────────────────────────────────────
         with tab_login:
             email_l    = st.text_input("Email",    key="login_email",    placeholder="you@example.com")
             password_l = st.text_input("Password", key="login_password", type="password", placeholder="••••••••")
@@ -100,13 +128,13 @@ def show_auth_page():
                             "email":    email_l.strip(),
                             "password": password_l
                         })
-                        st.session_state["user"]    = resp.user
-                        st.session_state["session"] = resp.session
+                        st.session_state["user"]     = resp.user
+                        st.session_state["session"]  = resp.session
+                        st.session_state["is_guest"] = False
                         st.rerun()
                     except Exception as e:
                         st.error(f"Login failed: {e}")
 
-        # ── SIGN UP ───────────────────────────────────────
         with tab_signup:
             email_s    = st.text_input("Email",            key="signup_email",    placeholder="you@example.com")
             password_s = st.text_input("Password",         key="signup_password", type="password", placeholder="Min. 6 characters")
@@ -125,11 +153,10 @@ def show_auth_page():
                             "email":    email_s.strip(),
                             "password": password_s
                         })
-                        # Supabase may require email confirmation depending on project settings.
-                        # If email confirmation is OFF, resp.user is populated immediately.
                         if resp.user:
-                            st.session_state["user"]    = resp.user
-                            st.session_state["session"] = resp.session
+                            st.session_state["user"]     = resp.user
+                            st.session_state["session"]  = resp.session
+                            st.session_state["is_guest"] = False
                             st.rerun()
                         else:
                             st.success("Account created! Check your email to confirm, then log in.")
@@ -137,12 +164,14 @@ def show_auth_page():
                         st.error(f"Sign-up failed: {e}")
 
 
-if "user" not in st.session_state:
+if "user" not in st.session_state and "is_guest" not in st.session_state:
     show_auth_page()
     st.stop()
 
-CURRENT_USER = st.session_state["user"].id
-USER_EMAIL   = st.session_state["user"].email
+# ── Resolve identity ──────────────────────────────────────────────────────────
+IS_GUEST     = st.session_state.get("is_guest", False)
+CURRENT_USER = "guest_user" if IS_GUEST else st.session_state["user"].id
+USER_EMAIL   = "Guest"      if IS_GUEST else st.session_state["user"].email
 
 
 # ═══════════════════════════════════════════════════════════
@@ -156,9 +185,9 @@ def get_profile():
         return None
 
 
-profile = get_profile()
+profile = None if IS_GUEST else get_profile()
 
-if not profile:
+if not IS_GUEST and not profile:
     st.title("🎓 RTU Dashboard — First-Time Setup")
     st.info("We just need your branch to get started. This is saved to your account.")
     branch_sel = st.selectbox("Select your Branch", BRANCHES)
@@ -171,7 +200,7 @@ if not profile:
         st.rerun()
     st.stop()
 
-CURRENT_BRANCH = profile["branch"]
+CURRENT_BRANCH = BRANCHES[0] if IS_GUEST else profile["branch"]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -256,13 +285,21 @@ def highlight_fail_rows(row):
 # ═══════════════════════════════════════════════════════════
 with st.sidebar:
     # User identity
-    st.markdown(f"**👤** {USER_EMAIL}")
-    st.caption(f"Branch: **{CURRENT_BRANCH}**")
-    if st.button("🚪 Sign Out", use_container_width=True):
-        supabase.auth.sign_out()
-        st.session_state.pop("user", None)
-        st.session_state.pop("session", None)
-        st.rerun()
+    if IS_GUEST:
+        st.markdown("**👀 Guest Session**")
+        st.caption("Data is not saved between sessions.")
+        if st.button("🔑 Sign In / Sign Up", use_container_width=True, type="primary"):
+            for k in ["user", "session", "is_guest"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+    else:
+        st.markdown(f"**👤** {USER_EMAIL}")
+        st.caption(f"Branch: **{CURRENT_BRANCH}**")
+        if st.button("🚪 Sign Out", use_container_width=True):
+            supabase.auth.sign_out()
+            for k in ["user", "session", "is_guest"]:
+                st.session_state.pop(k, None)
+            st.rerun()
 
     st.write("---")
 
@@ -326,6 +363,14 @@ with st.sidebar:
 # ═══════════════════════════════════════════════════════════
 st.title("🎓 RTU Performance Dashboard")
 st.caption(f"Branch: **{CURRENT_BRANCH}** · {USER_EMAIL}")
+
+if IS_GUEST:
+    st.warning(
+        "👀 **You're browsing as a Guest.** Results are calculated live but "
+        "not saved — they'll be lost when you close the tab. "
+        "[Sign up](#) to save your data permanently.",
+        icon=None
+    )
 
 if cloud_data:
     cgpa  = compute_cgpa(cloud_data)
@@ -445,8 +490,11 @@ for sem_name, col in sem_layout:
                             )
                             st.bar_chart(grade_counts, height=160)
 
-                        # Auto-upsert if data changed
-                        if sem_name not in cloud_data or abs(cloud_data[sem_name]['sgpa'] - sgpa) > 0.001:
+                        # Auto-upsert if data changed (skip for guests)
+                        if not IS_GUEST and (
+                            sem_name not in cloud_data or
+                            abs(cloud_data[sem_name]['sgpa'] - sgpa) > 0.001
+                        ):
                             supabase.table("rtu_data").upsert({
                                 "profile_id": CURRENT_USER,
                                 "semester":   sem_name,
